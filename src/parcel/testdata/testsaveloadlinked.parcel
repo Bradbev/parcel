@@ -1,0 +1,10 @@
+{
+ "Type": "*parcel_test.testType",
+ "Parent": "",
+ "Obj": {
+  "Float": 0,
+  "OtherObj": null,
+  "String": "Linked Object",
+  "Uint64": 0
+ }
+}

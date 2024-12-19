@@ -1,0 +1,10 @@
+{
+ "Type": "*parcel_test.testType",
+ "Parent": "",
+ "Obj": {
+  "Float": 0,
+  "OtherObj": "testsaveloadlinked.parcel",
+  "String": "",
+  "Uint64": 0
+ }
+}

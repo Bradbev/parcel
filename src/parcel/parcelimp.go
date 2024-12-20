@@ -59,7 +59,8 @@ func (p *Parcel) AddFactoryForType(T any, create func() (any, error)) error {
 }
 
 func (p *Parcel) New(T any) (any, error) {
-	if fn, ok := p.factories[reflect.TypeOf(T)]; ok {
+	typ := reflect.TypeOf(T)
+	if fn, ok := p.factories[typ]; ok {
 		obj, err := fn()
 		if err == nil && obj != nil {
 			if postloader, ok := obj.(PostLoader); ok {
@@ -68,7 +69,7 @@ func (p *Parcel) New(T any) (any, error) {
 		}
 		return obj, err
 	}
-	return nil, nil
+	return nil, fmt.Errorf("unknown asset type %s, make sure this type is added", typ.String())
 }
 
 func (p *Parcel) SetSavePath(T any, path string) error {
@@ -80,10 +81,16 @@ func (p *Parcel) SetSavePath(T any, path string) error {
 	return p.Save(T)
 }
 
-type diskFormat struct {
+type diskSaveFormat struct {
 	Type   string
 	Parent string
 	Obj    map[string]any
+}
+
+type diskLoadFormat struct {
+	Type   string
+	Parent string
+	Obj    json.RawMessage
 }
 
 func (p *Parcel) Load(T any, path string) (any, error) {
@@ -99,12 +106,18 @@ func (p *Parcel) Load(T any, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var loaded diskFormat
+	var loaded diskLoadFormat
 	err = json.Unmarshal(data, &loaded)
 	if err != nil {
 		return nil, err
 	}
-	p.fromSaveFormat(loaded.Obj, t)
+	loadAbleType, err := makeLoadableType(reflect.TypeOf(T))
+	loadAble := reflect.New(loadAbleType).Interface()
+	err = json.Unmarshal(loaded.Obj, loadAble)
+	if err != nil {
+		return nil, err
+	}
+	err = p.fromLoadable(loadAble, t)
 	p.objectFromPath[path] = t
 	return t, nil
 }
@@ -122,7 +135,7 @@ func (p *Parcel) Save(T any) error {
 	if err != nil {
 		return err
 	}
-	toSave := diskFormat{
+	toSave := diskSaveFormat{
 		Type: typeStr(reflect.TypeOf(T)),
 		Obj:  saveFmt,
 	}
@@ -181,25 +194,26 @@ func (p *Parcel) toSaveFormat(T any) (map[string]any, error) {
 	return out, nil
 }
 
-func (p *Parcel) fromSaveFormat(from map[string]any, T any) error {
+func (p *Parcel) fromLoadable(from any, T any) error {
 	ptyp := reflect.TypeOf(T)
 	if !isPointer(ptyp) {
-		return fmt.Errorf("fromSaveFormat only accepts pointers")
+		return fmt.Errorf("fromLoadable only accepts pointers")
 	}
 	typ := ptyp.Elem()
 	if !isStruct(typ) {
-		return fmt.Errorf("fromSaveFormat only accepts pointers to struct")
+		return fmt.Errorf("fromLoadable only accepts pointers to struct")
 	}
 	dest := reflect.ValueOf(T).Elem()
+	fromV := reflect.ValueOf(from).Elem()
 
 	for i := 0; i < typ.NumField(); i++ {
 		tfield := typ.Field(i)
-		tvalue := dest.Field(i)
-
-		val, exists := from[tfield.Name]
-		if !exists {
+		if !tfield.IsExported() {
 			continue
 		}
+		tvalue := dest.Field(i)
+		val := fromV.FieldByName(tfield.Name).Interface()
+
 		if isPointer(tfield.Type) {
 			// when we expect a pointer but find a string, it means we need to load
 			// the asset at the path

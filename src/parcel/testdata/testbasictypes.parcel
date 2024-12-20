@@ -1,0 +1,19 @@
+{
+ "Type": "*parcel_test.basicTypes",
+ "Parent": "",
+ "Obj": {
+  "Float32": 2,
+  "Float64": 3,
+  "Int32": 0,
+  "Int64": 1,
+  "Map": {
+   "a": 0,
+   "b": 1
+  },
+  "Slice": [
+   0,
+   1,
+   2
+  ]
+ }
+}

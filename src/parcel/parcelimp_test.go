@@ -24,6 +24,12 @@ type setupOpts struct {
 	NoEraseStore bool
 }
 
+func newDefault() *parcel.Parcel {
+	p := parcel.NewParcel()
+	parcel.SetDefault(p)
+	return p
+}
+
 func setupBasic(p *parcel.Parcel, opts setupOpts) {
 	if opts.NoEraseStore == false {
 		os.RemoveAll("./testdata")
@@ -55,7 +61,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestSaveLoad(t *testing.T) {
-	setupBasic(parcel.GetDefault(), setupOpts{})
+	setupBasic(newDefault(), setupOpts{})
 
 	path := "testsaveload"
 	obj, _ := parcel.New[testType]()
@@ -72,7 +78,7 @@ func TestSaveLoad(t *testing.T) {
 }
 
 func TestSaveLoadPersist(t *testing.T) {
-	setupBasic(parcel.GetDefault(), setupOpts{})
+	setupBasic(newDefault(), setupOpts{})
 
 	path := "testsaveload"
 	obj, _ := parcel.New[testType]()
@@ -94,8 +100,15 @@ func TestSaveLoadPersist(t *testing.T) {
 	assert.Equal(t, obj, obj2)
 }
 
+func TestLoadError(t *testing.T) {
+	setupBasic(newDefault(), setupOpts{})
+	obj, err := parcel.Load[testType]("")
+	assert.Nil(t, obj)
+	assert.Error(t, err)
+}
+
 func TestSaveLoadWithIndirectObject(t *testing.T) {
-	setupBasic(parcel.GetDefault(), setupOpts{})
+	setupBasic(newDefault(), setupOpts{})
 
 	// Link 2 objects together and save them
 	path := "testsaveloadmain"
@@ -148,7 +161,7 @@ var basic = basicTypes{
 }
 
 func TestBasicTypes(t *testing.T) {
-	setupBasic(parcel.GetDefault(), setupOpts{})
+	setupBasic(newDefault(), setupOpts{})
 	parcel.AddType[basicTypes]()
 
 	path := "testbasictypes"

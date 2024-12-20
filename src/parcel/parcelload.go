@@ -11,7 +11,7 @@ func makeLoadableMetadataForType(ptyp reflect.Type) (reflect.Type, error) {
 		return nil, err
 	}
 	fields := reflect.VisibleFields(reflect.TypeFor[diskSaveFormat]())
-	fields[len(fields)-1].Type = innerTyp
+	fields[len(fields)-1].Type = reflect.PointerTo(innerTyp)
 	return reflect.StructOf(fields), nil
 }
 

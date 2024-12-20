@@ -3,6 +3,7 @@ package parcel
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,6 +18,7 @@ type Parcel struct {
 	factories      map[reflect.Type]func() (any, error)
 	objectFromPath map[string]any
 	pathFromObject map[any]string
+	loadableTypes  map[reflect.Type]reflect.Type
 }
 
 func NewParcel() *Parcel {
@@ -24,6 +26,7 @@ func NewParcel() *Parcel {
 		factories:      make(map[reflect.Type]func() (any, error)),
 		objectFromPath: make(map[string]any),
 		pathFromObject: make(map[any]string),
+		loadableTypes:  make(map[reflect.Type]reflect.Type),
 	}
 }
 
@@ -98,28 +101,26 @@ func (p *Parcel) Load(T any, path string) (any, error) {
 	if obj, exists := p.objectFromPath[path]; exists {
 		return obj, nil
 	}
-	t, err := p.New(T)
+
+	newObj, e1 := p.New(T)
+	data, e2 := p.ReadFile(path)
+	loadableType, e3 := p.getLoadableMetadataType(reflect.TypeOf(T))
+
+	if err := errors.Join(e1, e2, e3); err != nil {
+		return nil, err
+	}
+
+	loadableV := reflect.New(loadableType)
+	err := json.Unmarshal(data, loadableV.Interface())
 	if err != nil {
 		return nil, err
 	}
-	data, err := p.ReadFile(path)
+
+	err = p.fromLoadable(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
 	if err != nil {
 		return nil, err
 	}
-	var loaded diskLoadFormat
-	err = json.Unmarshal(data, &loaded)
-	if err != nil {
-		return nil, err
-	}
-	loadAbleType, err := makeLoadableType(reflect.TypeOf(T))
-	loadAble := reflect.New(loadAbleType).Interface()
-	err = json.Unmarshal(loaded.Obj, loadAble)
-	if err != nil {
-		return nil, err
-	}
-	err = p.fromLoadable(loadAble, t)
-	p.objectFromPath[path] = t
-	return t, nil
+	return newObj, nil
 }
 
 func (p *Parcel) Save(T any) error {
@@ -228,6 +229,19 @@ func (p *Parcel) fromLoadable(from any, T any) error {
 		}
 	}
 	return nil
+}
+
+func (p *Parcel) getLoadableMetadataType(ptyp reflect.Type) (reflect.Type, error) {
+	ret, ok := p.loadableTypes[ptyp]
+	if !ok {
+		var err error
+		ret, err = makeLoadableMetadataForType(ptyp)
+		if err != nil {
+			return nil, err
+		}
+		p.loadableTypes[ptyp] = ret
+	}
+	return ret, nil
 }
 
 type fsPriority struct {

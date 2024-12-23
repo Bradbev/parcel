@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-func makeLoadableMetadataForType(ptyp reflect.Type) (reflect.Type, error) {
+func makeLoadableSaveFormatForType(ptyp reflect.Type) (reflect.Type, error) {
 	innerTyp, err := makeLoadableType(ptyp)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func makeLoadableType(ptyp reflect.Type) (reflect.Type, error) {
 	for _, field := range reflect.VisibleFields(typ) {
 		if isPointer(field.Type) {
 			f := field
-			f.Type = reflect.TypeFor[any]()
+			f.Type = reflect.TypeFor[inlinedOrPath]()
 			fields = append(fields, f)
 		} else {
 			fields = append(fields, field)

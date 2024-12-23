@@ -13,7 +13,7 @@ type loadTypeTest struct {
 }
 
 func TestMakeLoadableMetadataForType(t *testing.T) {
-	typ, err := makeLoadableMetadataForType(reflect.TypeFor[*loadTypeTest]())
+	typ, err := makeLoadableSaveFormatForType(reflect.TypeFor[*loadTypeTest]())
 	assert.NoError(t, err)
 
 	expected := []struct {
@@ -22,7 +22,7 @@ func TestMakeLoadableMetadataForType(t *testing.T) {
 	}{
 		{"Type", "string"},
 		{"Parent", "string"},
-		{"Obj", "*struct { Int int; Ptr interface {} }"},
+		{"Obj", "*struct { Int int; Ptr parcel.inlinedOrPath }"},
 	}
 
 	for i, field := range reflect.VisibleFields(typ) {

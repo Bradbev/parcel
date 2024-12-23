@@ -90,21 +90,23 @@ type diskSaveFormat struct {
 	Obj    map[string]any
 }
 
-type diskLoadFormat struct {
-	Type   string
-	Parent string
-	Obj    json.RawMessage
+type inlinedOrPath struct {
+	Path string
+	Obj  json.RawMessage
 }
 
+// Load takes a pointer to a type and a path.  A new object of type will be created,
+// the on-disk meta format (a variation on diskSaveFormat) for T will be loaded and
+// finally the newly created T will be returned.
 func (p *Parcel) Load(T any, path string) (any, error) {
 	path = normPath(path)
 	if obj, exists := p.objectFromPath[path]; exists {
 		return obj, nil
 	}
+	data, e2 := p.ReadFile(path)
+	loadableType, e3 := p.getLoadableSaveFormatType(reflect.TypeOf(T))
 
 	newObj, e1 := p.New(T)
-	data, e2 := p.ReadFile(path)
-	loadableType, e3 := p.getLoadableMetadataType(reflect.TypeOf(T))
 
 	if err := errors.Join(e1, e2, e3); err != nil {
 		return nil, err
@@ -116,11 +118,26 @@ func (p *Parcel) Load(T any, path string) (any, error) {
 		return nil, err
 	}
 
-	err = p.fromLoadable(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
+	err = p.fromLoadableType(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
+	return newObj, err
+}
+
+// loadFromBytes takes a pointer to T and bytes that represent the on-disk format for T.
+// NOTE: the bytes must not be the full diskSaveFormat variant, they must be a type that
+// makeLoadableType has returned
+func (p *Parcel) loadFromBytes(T any, data []byte) (any, error) {
+	newObj, e1 := p.New(T)
+	loadableType, e2 := makeLoadableType(reflect.TypeOf(T))
+	if err := errors.Join(e1, e2); err != nil {
+		return nil, err
+	}
+	loadableV := reflect.New(loadableType)
+	err := json.Unmarshal(data, loadableV.Interface())
 	if err != nil {
 		return nil, err
 	}
-	return newObj, nil
+	err = p.fromLoadableType(loadableV.Interface(), newObj)
+	return newObj, err
 }
 
 func (p *Parcel) Save(T any) error {
@@ -185,17 +202,25 @@ func (p *Parcel) toSaveFormat(T any) (map[string]any, error) {
 		tvalue := val.Field(i)
 		out[tfield.Name] = tvalue.Interface()
 		if isPointer(tfield.Type) {
+			pathOrFull := map[string]any{}
 			// replace the pointer with the asset path
 			if path, exists := p.pathFromObject[tvalue.Interface()]; exists {
-				out[tfield.Name] = path
+				pathOrFull["Path"] = path
+			} else if !tvalue.IsNil() {
+				inlinedSave, err := p.toSaveFormat(tvalue.Interface())
+				if err != nil {
+					return nil, err
+				}
+				pathOrFull["Obj"] = inlinedSave
 			}
+			out[tfield.Name] = pathOrFull
 		}
 	}
 
 	return out, nil
 }
 
-func (p *Parcel) fromLoadable(from any, T any) error {
+func (p *Parcel) fromLoadableType(from any, T any) error {
 	ptyp := reflect.TypeOf(T)
 	if !isPointer(ptyp) {
 		return fmt.Errorf("fromLoadable only accepts pointers")
@@ -216,11 +241,20 @@ func (p *Parcel) fromLoadable(from any, T any) error {
 		val := fromV.FieldByName(tfield.Name).Interface()
 
 		if isPointer(tfield.Type) {
-			// when we expect a pointer but find a string, it means we need to load
-			// the asset at the path
-			if loadPath, ok := val.(string); ok {
-				t := reflect.New(tfield.Type.Elem())
-				val, _ = p.Load(t.Interface(), loadPath)
+			// pointers are replaced with the inlinedOrPath object
+			iop, ok := val.(inlinedOrPath)
+			if !ok {
+				return fmt.Errorf("unable to convert %v into inlinedOrPath", val)
+			}
+			t := reflect.New(tfield.Type.Elem())
+			if iop.Path != "" {
+				val, _ = p.Load(t.Interface(), iop.Path)
+			} else {
+				var err error
+				val, err = p.loadFromBytes(t.Interface(), iop.Obj)
+				if err != nil {
+					val = nil
+				}
 			}
 
 		}
@@ -231,11 +265,11 @@ func (p *Parcel) fromLoadable(from any, T any) error {
 	return nil
 }
 
-func (p *Parcel) getLoadableMetadataType(ptyp reflect.Type) (reflect.Type, error) {
+func (p *Parcel) getLoadableSaveFormatType(ptyp reflect.Type) (reflect.Type, error) {
 	ret, ok := p.loadableTypes[ptyp]
 	if !ok {
 		var err error
-		ret, err = makeLoadableMetadataForType(ptyp)
+		ret, err = makeLoadableSaveFormatForType(ptyp)
 		if err != nil {
 			return nil, err
 		}

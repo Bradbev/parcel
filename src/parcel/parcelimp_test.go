@@ -109,17 +109,25 @@ func TestLoadError(t *testing.T) {
 
 func TestSaveLoadWithIndirectObject(t *testing.T) {
 	setupBasic(newDefault(), setupOpts{})
+	mkobj := func(path string) (*testType, string) {
+		obj, _ := parcel.New[testType]()
+		obj.String = path
+		parcel.SetSavePath(obj, path)
+		return obj, path
+	}
 
-	// Link 2 objects together and save them
-	path := "testsaveloadmain"
-	obj, _ := parcel.New[testType]()
-	parcel.SetSavePath(obj, path)
-
-	linkedPath := "testsaveloadlinked"
-	linked, _ := parcel.New[testType]()
-	parcel.SetSavePath(linked, linkedPath)
+	// Objects are linked as
+	// obj->linked->(inlined)->linked2
+	obj, path := mkobj("testsaveload")
+	linked, linkedPath := mkobj("testsaveloadlinked")
+	linked2, linked2Path := mkobj("testsaveloadlinked2")
 	obj.OtherObj = linked
-	linked.String = "Linked Object"
+	linked.OtherObj = &testType{
+		String:   "inlined",
+		OtherObj: linked2,
+	}
+
+	parcel.Save(linked2)
 	parcel.Save(linked)
 	parcel.Save(obj)
 
@@ -130,13 +138,18 @@ func TestSaveLoadWithIndirectObject(t *testing.T) {
 
 	anyObj2, err := p.Load(&testType{}, path)
 	assert.NoError(t, err)
-	obj2 := anyObj2.(*testType)
+	objL := anyObj2.(*testType)
 
-	anyLinked2, err := p.Load(&testType{}, linkedPath)
+	anyLinked, err := p.Load(&testType{}, linkedPath)
 	assert.NoError(t, err)
-	linked2 := anyLinked2.(*testType)
+	linkedL := anyLinked.(*testType)
 
-	assert.Equal(t, obj2.OtherObj, linked2)
+	anyLinked2, err := p.Load(&testType{}, linked2Path)
+	assert.NoError(t, err)
+	linked2L := anyLinked2.(*testType)
+
+	assert.Equal(t, objL.OtherObj, linkedL)
+	assert.Equal(t, linkedL.OtherObj.OtherObj, linked2L)
 }
 
 type basicTypes struct {
@@ -146,6 +159,8 @@ type basicTypes struct {
 	Float64 float64
 	Slice   []int
 	Map     map[string]int
+	Bytes   []byte
+	Rune    rune
 }
 
 var basic = basicTypes{
@@ -158,6 +173,8 @@ var basic = basicTypes{
 		"a": 0,
 		"b": 1,
 	},
+	Bytes: []byte("this is a test"),
+	Rune:  'a',
 }
 
 func TestBasicTypes(t *testing.T) {

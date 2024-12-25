@@ -159,9 +159,21 @@ type basicTypes struct {
 	Float64 float64
 	Slice   []int
 	Map     map[string]int
+	MapInt  map[int]int
 	Bytes   []byte
 	Rune    rune
+	//InvalidMap map[invalidMapKey]int
 }
+
+/*
+type invalidMapKey struct {
+	Name string
+}
+
+func (i invalidMapKey) MarshalText() ([]byte, error) {
+	return []byte(fmt.Sprintf("Made up %v", i.Name)), nil
+}
+*/
 
 var basic = basicTypes{
 	Int32:   0,
@@ -173,8 +185,15 @@ var basic = basicTypes{
 		"a": 0,
 		"b": 1,
 	},
-	Bytes: []byte("this is a test"),
-	Rune:  'a',
+	MapInt: map[int]int{1: 1, 2: 2},
+	Bytes:  []byte("this is a test"),
+	Rune:   'a',
+	/*
+		InvalidMap: map[invalidMapKey]int{
+			{"A"}: 0,
+			{"B"}: 1,
+		},
+	*/
 }
 
 func TestBasicTypes(t *testing.T) {
@@ -184,7 +203,8 @@ func TestBasicTypes(t *testing.T) {
 	path := "testbasictypes"
 	obj, _ := parcel.New[basicTypes]()
 	*obj = basic
-	parcel.SetSavePath(obj, path)
+	err := parcel.SetSavePath(obj, path)
+	assert.NoError(t, err)
 
 	p := parcel.NewParcel()
 	setupBasic(p, setupOpts{NoEraseStore: true})

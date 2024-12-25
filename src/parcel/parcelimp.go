@@ -87,7 +87,7 @@ func (p *Parcel) SetSavePath(T any, path string) error {
 type diskSaveFormat struct {
 	Type   string
 	Parent string
-	Obj    map[string]any
+	Obj    any
 }
 
 type inlinedOrPath struct {
@@ -149,13 +149,9 @@ func (p *Parcel) Save(T any) error {
 		return fmt.Errorf("object has no save path.  Call SetSavePath first")
 	}
 	p.objectFromPath[path] = T
-	saveFmt, err := p.toSaveFormat(T)
-	if err != nil {
-		return err
-	}
 	toSave := diskSaveFormat{
 		Type: typeStr(reflect.TypeOf(T)),
-		Obj:  saveFmt,
+		Obj:  T,
 	}
 	data, err := json.MarshalIndent(toSave, "", " ")
 	if err != nil {

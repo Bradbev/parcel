@@ -54,3 +54,46 @@ func TestJsonWriteBasic(t *testing.T) {
 
 	assert.Equal(t, basic, back)
 }
+
+type basicWithPointer struct {
+	Name    string
+	Other   *basicWithPointer
+	Unknown *unknownType
+}
+
+type unknownType struct {
+	Unknown string
+}
+
+func TestJsonReplacePointerWithString(t *testing.T) {
+	AddType[basicWithPointer]()
+	main, _ := New[basicWithPointer]()
+	linked, _ := New[basicWithPointer]()
+	main.Name = "main"
+	main.Other = linked
+	linked.Name = "linked"
+	linked.Other = &basicWithPointer{Name: "Not known", Unknown: &unknownType{Unknown: "unk"}}
+
+	SetSavePath(main, "main")
+	SetSavePath(linked, "linked")
+
+	p := GetDefault()
+	p.objectFromPath["linked.parcel"] = linked
+
+	bmain, err := p.jsonSave(main)
+	assert.NoError(t, err)
+	os.WriteFile("./testdata/replacePointerWithStringMain.json", bmain, 0666)
+
+	mainBack := basicWithPointer{}
+	err = p.jsonLoad(&mainBack, bmain)
+	assert.NoError(t, err)
+	assert.Equal(t, main, &mainBack)
+
+	blinked, err := p.jsonSave(linked)
+	assert.NoError(t, err)
+	os.WriteFile("./testdata/replacePointerWithStringLinked.json", blinked, 0666)
+
+	otherBack := basicWithPointer{}
+	err = p.jsonLoad(&otherBack, blinked)
+	assert.NoError(t, err)
+}

@@ -1,5 +1,14 @@
 package parcel
 
+/*
+This file implements a custom json reader/writer.
+Exported fields are saved as normal.
+Pointer fields are saved as either
+1. A string to an object path if the pointer is to a known object OR
+2. The normal save structure of the object
+
+*/
+
 import (
 	"encoding/base64"
 	"reflect"
@@ -36,8 +45,19 @@ func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
 	case reflect.Struct:
 		obj := w.Object()
 		for _, field := range reflect.VisibleFields(v.Type()) {
+			fv := v.FieldByIndex(field.Index)
+			if fv.Kind() == reflect.Pointer {
+				if fv.IsNil() { // don't bother to write nil ptrs
+					continue
+				}
+				// if it's a pointer to a known object, write the path instead
+				if path, ok := p.pathFromObject[fv.Interface()]; ok {
+					fv = reflect.ValueOf(path)
+				}
+			}
+
 			propWriter := obj.Name(field.Name)
-			err := p.jsonSaveWriter(propWriter, v.FieldByIndex(field.Index))
+			err := p.jsonSaveWriter(propWriter, fv)
 			if err != nil {
 				return err
 			}
@@ -79,15 +99,44 @@ func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
 	return nil
 }
 
-func (p *Parcel) jsonLoad(T any, data []byte) error {
-	r := jreader.NewReader(data)
-	return p.jsonLoadReader(&r, reflect.ValueOf(T))
+type preader struct {
+	r            *jreader.Reader
+	lastAny      jreader.AnyValue
+	anyWasCalled bool
 }
 
-func (p *Parcel) jsonLoadReader(r *jreader.Reader, v reflect.Value) error {
+func (p *Parcel) jsonLoad(T any, data []byte) error {
+	r := jreader.NewReader(data)
+	pr := &preader{
+		r: &r,
+	}
+	return p.jsonLoadReader(pr, reflect.ValueOf(T))
+}
+
+func (p *Parcel) jsonLoadReader(pr *preader, v reflect.Value) error {
+	r := pr.r
 	switch v.Kind() {
 	case reflect.Pointer:
-		return p.jsonLoadReader(r, v.Elem())
+		if v.IsNil() {
+			_, knownType := p.objectNewFunc[v.Type()]
+			if knownType {
+				pr.lastAny = r.Any()
+				pr.anyWasCalled = true
+
+				if pr.lastAny.Kind == jreader.StringValue {
+					t := reflect.New(v.Type())
+					loaded, err := p.Load(t.Elem().Interface(), pr.lastAny.String)
+					v.Set(reflect.ValueOf(loaded))
+					return err
+				}
+			}
+			if o, err := p.newFromType(v.Type()); err == nil {
+				v.Set(reflect.ValueOf(o))
+			} else {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+		}
+		return p.jsonLoadReader(pr, v.Elem())
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		v.SetInt(int64(r.Int()))
@@ -102,11 +151,18 @@ func (p *Parcel) jsonLoadReader(r *jreader.Reader, v reflect.Value) error {
 		v.SetString(r.String())
 
 	case reflect.Struct:
-		for obj := r.Object(); obj.Next(); {
+		var obj jreader.ObjectState
+		if pr.anyWasCalled {
+			obj = pr.lastAny.Object
+		} else {
+			obj = r.Object()
+		}
+		pr.anyWasCalled = false
+		for obj.Next() {
 			name := string(obj.Name())
 			fieldV := v.FieldByName(name)
 			if fieldV != valueZero {
-				err := p.jsonLoadReader(r, fieldV)
+				err := p.jsonLoadReader(pr, fieldV)
 				if err != nil {
 					return err
 				}
@@ -121,7 +177,7 @@ func (p *Parcel) jsonLoadReader(r *jreader.Reader, v reflect.Value) error {
 			for obj := r.Object(); obj.Next(); {
 				key := reflect.ValueOf(string(obj.Name()))
 				v := reflect.New(valType)
-				err := p.jsonLoadReader(r, v.Elem())
+				err := p.jsonLoadReader(pr, v.Elem())
 				if err != nil {
 					return err
 				}
@@ -151,7 +207,7 @@ func (p *Parcel) jsonLoadReader(r *jreader.Reader, v reflect.Value) error {
 		s := reflect.New(reflect.SliceOf(elemTyp)).Elem()
 		for a := r.Array(); a.Next(); {
 			v := reflect.New(elemTyp).Elem()
-			err := p.jsonLoadReader(r, v)
+			err := p.jsonLoadReader(pr, v)
 			if err != nil {
 				return err
 			}

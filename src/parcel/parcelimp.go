@@ -15,7 +15,7 @@ import (
 type Parcel struct {
 	fsys           []fsPriority
 	writefs        WritableFS
-	factories      map[reflect.Type]func() (any, error)
+	objectNewFunc  map[reflect.Type]func() (any, error)
 	objectFromPath map[string]any
 	pathFromObject map[any]string
 	loadableTypes  map[reflect.Type]reflect.Type
@@ -23,7 +23,7 @@ type Parcel struct {
 
 func NewParcel() *Parcel {
 	return &Parcel{
-		factories:      make(map[reflect.Type]func() (any, error)),
+		objectNewFunc:  make(map[reflect.Type]func() (any, error)),
 		objectFromPath: make(map[string]any),
 		pathFromObject: make(map[any]string),
 		loadableTypes:  make(map[reflect.Type]reflect.Type),
@@ -57,13 +57,17 @@ func (p *Parcel) AddFactoryForType(T any, create func() (any, error)) error {
 	if isPointer(typ.Elem()) {
 		return fmt.Errorf("Type being registered must be a pointer that dereferences to a concrete type")
 	}
-	p.factories[typ] = create
+	p.objectNewFunc[typ] = create
 	return nil
 }
 
 func (p *Parcel) New(T any) (any, error) {
 	typ := reflect.TypeOf(T)
-	if fn, ok := p.factories[typ]; ok {
+	return p.newFromType(typ)
+}
+
+func (p *Parcel) newFromType(typ reflect.Type) (any, error) {
+	if fn, ok := p.objectNewFunc[typ]; ok {
 		obj, err := fn()
 		if err == nil && obj != nil {
 			if postloader, ok := obj.(PostLoader); ok {

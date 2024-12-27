@@ -10,8 +10,10 @@ Pointer fields are saved as either
 */
 
 import (
+	"encoding"
 	"encoding/base64"
 	"reflect"
+	"strconv"
 
 	"github.com/launchdarkly/go-jsonstream/v3/jreader"
 	"github.com/launchdarkly/go-jsonstream/v3/jwriter"
@@ -28,8 +30,15 @@ func (p *Parcel) jsonSave(T any) ([]byte, error) {
 
 func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
 	switch v.Kind() {
+	case reflect.Interface:
+		p.jsonSaveWriter(w, v.Elem())
+
 	case reflect.Pointer:
 		p.jsonSaveWriter(w, v.Elem())
+
+	case reflect.Bool:
+		w.Bool(v.Bool())
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		w.Int(int(v.Int()))
 
@@ -45,6 +54,9 @@ func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
 	case reflect.Struct:
 		obj := w.Object()
 		for _, field := range reflect.VisibleFields(v.Type()) {
+			if !field.IsExported() {
+				continue
+			}
 			fv := v.FieldByIndex(field.Index)
 			if fv.Kind() == reflect.Pointer {
 				if fv.IsNil() { // don't bother to write nil ptrs
@@ -68,10 +80,13 @@ func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
 		obj := w.Object()
 		itr := v.MapRange()
 		for itr.Next() {
-			k := itr.Key().String()
+			k, err := resolveKeyName(itr.Key())
+			if err != nil {
+				return err
+			}
 			v := itr.Value()
 			propWriter := obj.Name(k)
-			err := p.jsonSaveWriter(propWriter, v)
+			err = p.jsonSaveWriter(propWriter, v)
 			if err != nil {
 				return err
 			}
@@ -173,11 +188,16 @@ func (p *Parcel) jsonLoadReader(pr *preader, v reflect.Value) error {
 		if v.IsNil() {
 			// TODO - handle maps with ints & MarshalText keys
 			m := reflect.MakeMap(v.Type())
+			keyLoader := makeKeyLoader(v.Type().Key())
 			valType := v.Type().Elem()
 			for obj := r.Object(); obj.Next(); {
-				key := reflect.ValueOf(string(obj.Name()))
+				//key := reflect.ValueOf(string(obj.Name()))
+				key, err := keyLoader(string(obj.Name()))
+				if err != nil {
+					return err
+				}
 				v := reflect.New(valType)
-				err := p.jsonLoadReader(pr, v.Elem())
+				err = p.jsonLoadReader(pr, v.Elem())
 				if err != nil {
 					return err
 				}
@@ -224,4 +244,52 @@ func (p *Parcel) jsonLoadReader(pr *preader, v reflect.Value) error {
 
 	}
 	return nil
+}
+
+func resolveKeyName(k reflect.Value) (string, error) {
+	if k.Kind() == reflect.String {
+		return k.String(), nil
+	}
+	if tm, ok := k.Interface().(encoding.TextMarshaler); ok {
+		if k.Kind() == reflect.Pointer && k.IsNil() {
+			return "", nil
+		}
+		buf, err := tm.MarshalText()
+		return string(buf), err
+	}
+	switch k.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(k.Int(), 10), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return strconv.FormatUint(k.Uint(), 10), nil
+	}
+	panic("unexpected map key type")
+}
+
+func makeKeyLoader(typ reflect.Type) func(key string) (reflect.Value, error) {
+	if typ.Kind() == reflect.String {
+		return func(key string) (reflect.Value, error) {
+			return reflect.ValueOf(key).Convert(typ), nil
+		}
+	}
+	if reflect.PointerTo(typ).Implements(reflect.TypeFor[encoding.TextUnmarshaler]()) {
+		return func(key string) (reflect.Value, error) {
+			v := reflect.New(typ)
+			err := v.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(key))
+			return v.Elem(), err
+		}
+	}
+	switch typ.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return func(key string) (reflect.Value, error) {
+			n, err := strconv.ParseInt(key, 10, 64)
+			return reflect.ValueOf(n).Convert(typ), err
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return func(key string) (reflect.Value, error) {
+			n, err := strconv.ParseUint(key, 10, 64)
+			return reflect.ValueOf(n).Convert(typ), err
+		}
+	}
+	panic("unexpected map key type to load")
 }

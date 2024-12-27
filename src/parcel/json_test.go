@@ -8,36 +8,56 @@ import (
 )
 
 type basicTypes struct {
-	Int32   int32
-	Int64   int64
-	Float32 float32
-	Float64 float64
-	Array   [5]byte
-	Slice   []int
-	Map     map[string]int
-	//MapInt  map[int]int
-	Bytes []byte
-	Rune  rune
+	/*
+		Int32      int32
+		Int64      int64
+		Float32    float32
+		Float64    float64
+		Array      [5]byte
+		Slice      []int
+		Map        map[string]int
+		MapInt     map[int]int
+		Bytes      []byte
+		Rune       rune
+	*/
+	InvalidMap map[invalidMapKey]int
+}
+
+type invalidMapKey struct {
+	Name string
+}
+
+func (i invalidMapKey) MarshalText() ([]byte, error) {
+	return []byte(i.Name), nil
+}
+
+func (i *invalidMapKey) UnmarshalText(text []byte) error {
+	i.Name = string(text)
+	return nil
 }
 
 var basic = basicTypes{
-	Int32:   0,
-	Int64:   1,
-	Float32: 2,
-	Float64: 3,
-	Array:   [5]byte{1, 2, 3, 4, 5},
-	Slice:   []int{0, 1, 2},
-	Map: map[string]int{
-		"a": 0,
-		"b": 1,
-	},
 	/*
+		Int32:   0,
+		Int64:   1,
+		Float32: 2,
+		Float64: 3,
+		Array:   [5]byte{1, 2, 3, 4, 5},
+		Slice:   []int{0, 1, 2},
+		Map: map[string]int{
+			"a": 0,
+			"b": 1,
+		},
 		MapInt: map[int]int{
 			1: 1, 2: 2,
 		},
+		Bytes: []byte("this is a test"),
+		Rune:  'a',
 	*/
-	Bytes: []byte("this is a test"),
-	Rune:  'a',
+	InvalidMap: map[invalidMapKey]int{
+		{"A"}: 0,
+		{"B"}: 1,
+	},
 }
 
 func TestJsonWriteBasic(t *testing.T) {

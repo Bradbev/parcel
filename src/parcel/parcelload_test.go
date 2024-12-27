@@ -22,7 +22,7 @@ func TestMakeLoadableMetadataForType(t *testing.T) {
 	}{
 		{"Type", "string"},
 		{"Parent", "string"},
-		{"Obj", "*struct { Int int; Ptr parcel.inlinedOrPath }"},
+		{"Obj", "*parcel.loadTypeTest"},
 	}
 
 	for i, field := range reflect.VisibleFields(typ) {

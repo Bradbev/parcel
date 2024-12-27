@@ -107,41 +107,23 @@ func (p *Parcel) Load(T any, path string) (any, error) {
 	if obj, exists := p.objectFromPath[path]; exists {
 		return obj, nil
 	}
-	data, e2 := p.ReadFile(path)
-	loadableType, e3 := p.getLoadableSaveFormatType(reflect.TypeOf(T))
+	data, e1 := p.ReadFile(path)
+	loadableType, e2 := p.getLoadableSaveFormatType(reflect.TypeOf(T))
 
-	newObj, e1 := p.New(T)
-
-	if err := errors.Join(e1, e2, e3); err != nil {
-		return nil, err
-	}
-
-	loadableV := reflect.New(loadableType)
-	err := json.Unmarshal(data, loadableV.Interface())
-	if err != nil {
-		return nil, err
-	}
-
-	err = p.fromLoadableType(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
-	return newObj, err
-}
-
-// loadFromBytes takes a pointer to T and bytes that represent the on-disk format for T.
-// NOTE: the bytes must not be the full diskSaveFormat variant, they must be a type that
-// makeLoadableType has returned
-func (p *Parcel) loadFromBytes(T any, data []byte) (any, error) {
-	newObj, e1 := p.New(T)
-	loadableType, e2 := makeLoadableType(reflect.TypeOf(T))
 	if err := errors.Join(e1, e2); err != nil {
 		return nil, err
 	}
+
 	loadableV := reflect.New(loadableType)
-	err := json.Unmarshal(data, loadableV.Interface())
+	err := p.jsonLoad(loadableV.Interface(), data)
+	//err := json.Unmarshal(data, loadableV.Interface())
 	if err != nil {
 		return nil, err
 	}
-	err = p.fromLoadableType(loadableV.Interface(), newObj)
-	return newObj, err
+
+	//err = p.fromLoadableType(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
+	//return newObj, err
+	return loadableV.Elem().FieldByName("Obj").Interface(), nil
 }
 
 func (p *Parcel) Save(T any) error {
@@ -157,7 +139,8 @@ func (p *Parcel) Save(T any) error {
 		Type: typeStr(reflect.TypeOf(T)),
 		Obj:  T,
 	}
-	data, err := json.MarshalIndent(toSave, "", " ")
+	data, err := p.jsonSave(toSave)
+	//data, err := json.MarshalIndent(toSave, "", " ")
 	if err != nil {
 		return err
 	}
@@ -180,89 +163,6 @@ func (p *Parcel) ReadFile(path string) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("unable to find filepath '%s' in any registered filesystem", path)
-}
-
-func (p *Parcel) toSaveFormat(T any) (map[string]any, error) {
-	ptyp := reflect.TypeOf(T)
-	if !isPointer(ptyp) {
-		return nil, fmt.Errorf("toSaveFormat only accepts pointers")
-	}
-	typ := ptyp.Elem()
-	if !isStruct(typ) {
-		return nil, fmt.Errorf("toSaveFormat only accepts pointers to struct")
-	}
-	val := reflect.ValueOf(T).Elem()
-	out := map[string]any{}
-
-	for i := 0; i < typ.NumField(); i++ {
-		tfield := typ.Field(i)
-		if !tfield.IsExported() {
-			continue
-		}
-		tvalue := val.Field(i)
-		out[tfield.Name] = tvalue.Interface()
-		if isPointer(tfield.Type) {
-			pathOrFull := map[string]any{}
-			// replace the pointer with the asset path
-			if path, exists := p.pathFromObject[tvalue.Interface()]; exists {
-				pathOrFull["Path"] = path
-			} else if !tvalue.IsNil() {
-				inlinedSave, err := p.toSaveFormat(tvalue.Interface())
-				if err != nil {
-					return nil, err
-				}
-				pathOrFull["Obj"] = inlinedSave
-			}
-			out[tfield.Name] = pathOrFull
-		}
-	}
-
-	return out, nil
-}
-
-func (p *Parcel) fromLoadableType(from any, T any) error {
-	ptyp := reflect.TypeOf(T)
-	if !isPointer(ptyp) {
-		return fmt.Errorf("fromLoadable only accepts pointers")
-	}
-	typ := ptyp.Elem()
-	if !isStruct(typ) {
-		return fmt.Errorf("fromLoadable only accepts pointers to struct")
-	}
-	dest := reflect.ValueOf(T).Elem()
-	fromV := reflect.ValueOf(from).Elem()
-
-	for i := 0; i < typ.NumField(); i++ {
-		tfield := typ.Field(i)
-		if !tfield.IsExported() {
-			continue
-		}
-		tvalue := dest.Field(i)
-		val := fromV.FieldByName(tfield.Name).Interface()
-
-		if isPointer(tfield.Type) {
-			// pointers are replaced with the inlinedOrPath object
-			iop, ok := val.(inlinedOrPath)
-			if !ok {
-				return fmt.Errorf("unable to convert %v into inlinedOrPath", val)
-			}
-			t := reflect.New(tfield.Type.Elem())
-			if iop.Path != "" {
-				val, _ = p.Load(t.Interface(), iop.Path)
-			} else {
-				var err error
-				val, err = p.loadFromBytes(t.Interface(), iop.Obj)
-				if err != nil {
-					val = nil
-				}
-			}
-
-		}
-		if val != nil {
-			tvalue.Set(reflect.ValueOf(val).Convert(tfield.Type))
-		}
-	}
-	return nil
 }
 
 func (p *Parcel) getLoadableSaveFormatType(ptyp reflect.Type) (reflect.Type, error) {

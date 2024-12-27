@@ -6,12 +6,14 @@ import (
 )
 
 func makeLoadableSaveFormatForType(ptyp reflect.Type) (reflect.Type, error) {
-	innerTyp, err := makeLoadableType(ptyp)
-	if err != nil {
-		return nil, err
-	}
+	/*
+		innerTyp, err := makeLoadableType(ptyp)
+		if err != nil {
+			return nil, err
+		}
+	*/
 	fields := reflect.VisibleFields(reflect.TypeFor[diskSaveFormat]())
-	fields[len(fields)-1].Type = reflect.PointerTo(innerTyp)
+	fields[len(fields)-1].Type = ptyp
 	return reflect.StructOf(fields), nil
 }
 

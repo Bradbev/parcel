@@ -1,12 +1,26 @@
 package parcel
 
-import "io/fs"
+import (
+	"io/fs"
+)
+
+// PostCreate is an optional interface.  If a type implements
+// PostCreate, then the PostCreate function will be called immediately
+// after the object has been created.
+type PostCreator interface {
+	PostCreate()
+}
 
 // PostLoader is an optional interface.  If a type implements
 // PostLoader, then the PostLoad function will be called immediately
-// after the object has been created.
+// after the object has been loaded.
 type PostLoader interface {
 	PostLoad()
+}
+
+type CustomSaveLoader interface {
+	Save() (any, error)
+	Load(loadOtherType func(any) error) error
 }
 
 // RegisterFS adds a new fs.FS to be used when loading files.

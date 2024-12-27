@@ -2,7 +2,6 @@ package parcel
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -68,13 +67,13 @@ func (p *Parcel) New(T any) (any, error) {
 
 func (p *Parcel) newFromType(typ reflect.Type) (any, error) {
 	if fn, ok := p.objectNewFunc[typ]; ok {
-		obj, err := fn()
-		if err == nil && obj != nil {
-			if postloader, ok := obj.(PostLoader); ok {
-				postloader.PostLoad()
+		newObj, err := fn()
+		if err == nil {
+			if postcreator, ok := newObj.(PostCreator); ok {
+				postcreator.PostCreate()
 			}
 		}
-		return obj, err
+		return newObj, err
 	}
 	return nil, fmt.Errorf("unknown asset type %s, make sure this type is added", typ.String())
 }
@@ -94,11 +93,6 @@ type diskSaveFormat struct {
 	Obj    any
 }
 
-type inlinedOrPath struct {
-	Path string
-	Obj  json.RawMessage
-}
-
 // Load takes a pointer to a type and a path.  A new object of type will be created,
 // the on-disk meta format (a variation on diskSaveFormat) for T will be loaded and
 // finally the newly created T will be returned.
@@ -116,14 +110,15 @@ func (p *Parcel) Load(T any, path string) (any, error) {
 
 	loadableV := reflect.New(loadableType)
 	err := p.jsonLoad(loadableV.Interface(), data)
-	//err := json.Unmarshal(data, loadableV.Interface())
 	if err != nil {
 		return nil, err
 	}
 
-	//err = p.fromLoadableType(loadableV.Elem().FieldByName("Obj").Interface(), newObj)
-	//return newObj, err
-	return loadableV.Elem().FieldByName("Obj").Interface(), nil
+	newObj := loadableV.Elem().FieldByName("Obj").Interface()
+	if postloader, ok := newObj.(PostLoader); ok {
+		postloader.PostLoad()
+	}
+	return newObj, nil
 }
 
 func (p *Parcel) Save(T any) error {
@@ -140,7 +135,6 @@ func (p *Parcel) Save(T any) error {
 		Obj:  T,
 	}
 	data, err := p.jsonSave(toSave)
-	//data, err := json.MarshalIndent(toSave, "", " ")
 	if err != nil {
 		return err
 	}

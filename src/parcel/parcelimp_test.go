@@ -13,11 +13,16 @@ type testType struct {
 	Uint64     uint64
 	Float      float32
 	OtherObj   *testType
-	postloaded bool
+	postCreate bool
+	postLoad   bool
+}
+
+func (t *testType) PostCreate() {
+	t.postCreate = true
 }
 
 func (t *testType) PostLoad() {
-	t.postloaded = true
+	t.postLoad = true
 }
 
 type setupOpts struct {
@@ -53,7 +58,7 @@ func TestNew(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, createCount)
 	assert.Equal(t, "Correct", obj.String)
-	assert.True(t, obj.postloaded)
+	assert.True(t, obj.postCreate)
 
 	obj2, err := parcel.New[testType]()
 	assert.False(t, obj == obj2, "Unique pointers are returned")
@@ -95,8 +100,10 @@ func TestSaveLoadPersist(t *testing.T) {
 
 	obj2, err := p.Load(&testType{}, path)
 	assert.NoError(t, err)
+	assert.True(t, obj2.(*testType).postLoad, "PostLoad must be called")
 
 	assert.True(t, obj != obj2, "Pointer from load is different from default parcel")
+	obj.postLoad = true // for the later Equal
 	assert.Equal(t, obj, obj2)
 }
 

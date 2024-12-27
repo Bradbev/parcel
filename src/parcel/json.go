@@ -28,7 +28,16 @@ func (p *Parcel) jsonSave(T any) ([]byte, error) {
 	return w.Bytes(), err
 }
 
+var customSaveLoader = reflect.TypeFor[CustomSaveLoader]()
+
 func (p *Parcel) jsonSaveWriter(w *jwriter.Writer, v reflect.Value) error {
+	if v.Type().Implements(customSaveLoader) {
+		toSave, err := v.Interface().(CustomSaveLoader).Save()
+		if err != nil {
+			return err
+		}
+		return p.jsonSaveWriter(w, reflect.ValueOf(toSave))
+	}
 	switch v.Kind() {
 	case reflect.Interface:
 		p.jsonSaveWriter(w, v.Elem())
@@ -130,6 +139,12 @@ func (p *Parcel) jsonLoad(T any, data []byte) error {
 
 func (p *Parcel) jsonLoadReader(pr *preader, v reflect.Value) error {
 	r := pr.r
+	if v.Type().Implements(customSaveLoader) {
+		csl := v.Interface().(CustomSaveLoader)
+		return csl.Load(func(a any) error {
+			return p.jsonLoadReader(pr, reflect.ValueOf(a))
+		})
+	}
 	switch v.Kind() {
 	case reflect.Pointer:
 		if v.IsNil() {

@@ -115,35 +115,40 @@ func TestJsonReplacePointerWithString(t *testing.T) {
 }
 
 type customSaveLoaderTest struct {
-	String string
-	hidden string
+	Public string
+	toSave customSaveLoaderTestSaved
 }
 
-type wrapped struct {
-	String string
+type customSaveLoaderTestSaved struct {
+	Public string
+	Name   string
 	Hidden string
 }
 
 func (c *customSaveLoaderTest) Save() (any, error) {
-	return &wrapped{c.String, c.hidden}, nil
+	// copy public fields that need saving into the save struct
+	c.toSave.Public = c.Public
+	return c.toSave, nil
 }
 
 func (c *customSaveLoaderTest) Load(loadOtherType func(in any) error) error {
-	w := wrapped{}
-	err := loadOtherType(&w)
-	if err == nil {
-		c.String = w.String
-		c.hidden = w.Hidden
-	}
+	err := loadOtherType(&c.toSave)
+	// copy public fields out of the saved struct
+	c.Public = c.toSave.Public
 	return err
 }
 
 func TestJsonMarshaller(t *testing.T) {
 	p := GetDefault()
-	custom := &customSaveLoaderTest{String: "str", hidden: "hidden"}
+	custom := &customSaveLoaderTest{
+		Public: "public",
+		toSave: customSaveLoaderTestSaved{
+			Name:   "name",
+			Hidden: "hidden",
+		},
+	}
 
 	b, err := p.jsonSave(custom)
-	//b, err := json.Marshal(custom)
 	assert.NoError(t, err)
 
 	os.WriteFile("./testdata/jsonmarshaller.json", b, 0666)
